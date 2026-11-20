@@ -29,3 +29,11 @@ class EntryPayload(BaseModel):
 class ActionPayload(BaseModel):
     action: str
     remark: str | None = None
+
+
+class EntityAuditPayload(BaseModel):
+    """批次校验请求：按条目标识指定审计范围，缺省为全部实体条目。
+
+    条目标识兼容条目 id 与历史实体原有的身份编号（实体ID）。
+    """
+    entity_ids: list[Any] | None = None

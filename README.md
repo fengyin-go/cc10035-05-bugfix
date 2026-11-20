@@ -77,5 +77,22 @@ npm run dev
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
 
+## 实体质量审计与补证
+
+质量检查模块对实体抽取结果做来源完整性把关（`页面来源`、`原文片段`为必备来源字段，
+缺失即不能算通过），并提供以下接口：
+
+| 接口 | 说明 |
+| --- | --- |
+| `POST /api/quality_check/run_audit` | 运行一轮实体批次校验。`{"entity_ids": [...]}` 指定审计范围（兼容条目 id 与历史实体ID），缺省为全部实体；同一范围重复提交沿用同一笔审计批次，异常中断后按原范围重试对应同一批次 |
+| `GET /api/quality_check/audit_dataset` | 实体质量审计数据集：每条明细可追到具体实体和规则，并列出已查完/缺证据/已入库条目；支持 `?batch=` 按批次过滤 |
+| `GET /api/quality_check/supplement_ledger` | 补证清单：逐项登记缺失的来源字段，跟踪待补证/已补齐/已入库 |
+| `POST /api/entity_extract/{entry_key}/supplement` | 实体抽取按条目标识接收待补资料（页面来源/原文片段），保留原实体ID |
+| `GET /api/entity_extract/graph_feed` | 已入库实体对关系图谱的供给，重复运行仍对上原实体ID |
+
+实体「确认入库」按本轮审计结论放行：缺来源字段的条目留在补证清单等待补证；
+入库后实体质量审计数据集与补证清单同步标明实际入库。审计台账存放在仓库
+台账区（`store.ledger_rows`），不计入业务模块总览。
+
 领域：数据工程
 子方向：数据采集、爬虫与RPA

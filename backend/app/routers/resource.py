@@ -3,13 +3,15 @@ from __future__ import annotations
 
 import csv
 import io
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from app.schemas import ActionPayload, ActionResult, EntryPayload, PageResult
+from app.schemas import ActionPayload, ActionResult, EntityAuditPayload, EntryPayload, PageResult
 from app.services import service_for
+from app.services.entity_extract import EntityExtractService
+from app.services.quality_check import QualityCheckService
 
 router = APIRouter(prefix="/api", tags=["业务资源"])
 
@@ -19,6 +21,51 @@ def require_service(module: str):
     if service is None:
         raise HTTPException(status_code=404, detail=f"未知业务模块：{module}")
     return service
+
+
+@router.post("/quality_check/run_audit")
+def run_entity_audit(payload: EntityAuditPayload | None = None) -> dict[str, Any]:
+    """运行一轮实体批次校验：产出实体质量审计数据集并把结论回写补证清单。
+
+    审计范围由 entity_ids（条目标识，兼容历史实体ID）决定；同一范围重复提交
+    沿用同一笔审计批次，异常中断后按原范围重试也能对应到同一批次。
+    """
+    service = cast(QualityCheckService, require_service("quality_check"))
+    entity_ids = payload.entity_ids if payload else None
+    return service.run_entity_audit(entity_ids)
+
+
+@router.get("/quality_check/audit_dataset")
+def get_audit_dataset(batch: str | None = Query(default=None)) -> dict[str, Any]:
+    """实体质量审计数据集：每条明细可追到具体实体和规则，并列出已查完/缺证据/已入库。"""
+    service = cast(QualityCheckService, require_service("quality_check"))
+    return service.audit_dataset(batch)
+
+
+@router.get("/quality_check/supplement_ledger")
+def get_supplement_ledger() -> dict[str, Any]:
+    """补证清单：逐项登记缺失的来源字段，跟踪待补证/已补齐/已入库。"""
+    service = cast(QualityCheckService, require_service("quality_check"))
+    return service.supplement_ledger()
+
+
+@router.post("/entity_extract/{entry_key}/supplement")
+def submit_supplement(entry_key: str, payload: EntryPayload | None = None) -> dict[str, Any]:
+    """实体抽取按条目标识接收待补资料（页面来源/原文片段），保留原实体ID。"""
+    service = cast(EntityExtractService, require_service("entity_extract"))
+    values = payload.values if payload else {}
+    result = service.receive_supplement(entry_key, values)
+    if not result.get("ok"):
+        raise HTTPException(status_code=404, detail=result.get("reason", "条目不存在"))
+    return result
+
+
+@router.get("/entity_extract/graph_feed")
+def entity_graph_feed() -> dict[str, Any]:
+    """已入库实体对关系图谱的供给：重复运行仍能对上实体原有的身份编号。"""
+    service = cast(EntityExtractService, require_service("entity_extract"))
+    items = service.extract_for_relation_graph()
+    return {"ok": True, "total": len(items), "items": items}
 
 
 @router.get("/{module}", response_model=PageResult[dict])
